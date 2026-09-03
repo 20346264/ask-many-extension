@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>同问 AI · 多模型工作台</title>
+<style>
+  :root {
+    --bg-main: linear-gradient(135deg, #a8cfe3 0%, #c5dde8 100%);
+    --sidebar-bg: #9dc1d4;
+    --card-bg: #fff;
+    --border: #d0dde5;
+    --text-primary: #2c3e50;
+    --text-muted: #6b7c8d;
+    --accent: #4a90e2;
+    --shadow: 0 2px 12px rgba(0,0,0,.08);
+  }
+  * { box-sizing:border-box; margin:0; padding:0 }
+  html,body { height:100%; margin:0 }
+  body { display:flex; background:var(--bg-main); color:var(--text-primary);
+         font:14px/1.55 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif }
+
+  /* 左侧栏 */
+  aside { width:200px; background:var(--sidebar-bg); display:flex; flex-direction:column;
+          padding:16px 12px; gap:12px; box-shadow:2px 0 8px rgba(0,0,0,.06); flex:none }
+  .brand { padding:2px 4px 14px; border-bottom:1px solid rgba(255,255,255,.35) }
+  .brand-name { color:#19384a; font-size:22px; line-height:1.15; font-weight:750;
+                letter-spacing:0 }
+  .brand-name span { color:#fff; font-weight:700 }
+  .brand-subtitle { margin-top:4px; color:rgba(25,56,74,.72); font-size:11px;
+                    line-height:1.3 }
+  .sidebar-title { color:rgba(25,56,74,.68); font-size:11px; font-weight:650;
+                   padding:0 4px; letter-spacing:0 }
+  .model-list { display:flex; flex-direction:column; gap:6px; flex:1; overflow-y:auto }
+  .model-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px;
+                background:rgba(255,255,255,.15); cursor:pointer; transition:background .15s }
+  .model-item:hover { background:rgba(255,255,255,.25) }
+  .model-item input[type="checkbox"] { flex:none }
+  .model-dot { width:8px; height:8px; border-radius:50%; background:#d4d4d8; flex:none }
+  .model-dot.live { background:#22c55e }
+  .model-dot.warn { background:#f59e0b }
+  .model-name { flex:1; font-size:13px; color:#2c3e50; white-space:nowrap; overflow:hidden;
+                text-overflow:ellipsis }
+
+  /* 右侧主区 */
+  .main-area { flex:1; display:flex; flex-direction:column; min-width:0 }
+
+  /* 模型列区 */
+  main { flex:1; display:flex; gap:12px; padding:12px; overflow:hidden; min-height:0 }
+  .col { flex:1 1 0; min-width:0; display:flex; flex-direction:column; background:var(--card-bg);
+         border-radius:12px; box-shadow:var(--shadow); overflow:hidden }
+  .col.hidden { display:none }
+  .col h2 { flex:none; margin:0; padding:10px 14px; font-size:13px; font-weight:600;
+            border-bottom:1px solid var(--border); background:#f8fafb;
+            display:flex; align-items:center; gap:8px }
+  .col h2 .name { flex:1 }
+  .col h2 .meta { font-weight:400; color:var(--text-muted); font-size:11px }
+  .col iframe { flex:1; width:100%; border:0; min-height:0 }
+  .col .fallback { flex:1; padding:20px; font-size:13px; color:var(--text-muted); display:none;
+                   flex-direction:column; gap:10px; align-items:center; justify-content:center;
+                   text-align:center }
+  .col.blocked iframe { display:none }
+  .col.blocked .fallback { display:flex }
+  .fallback a { color:var(--accent); text-decoration:none }
+  .fallback a:hover { text-decoration:underline }
+
+  /* 底部输入区 */
+  footer { flex:none; background:var(--card-bg); padding:14px 20px 16px;
+           box-shadow:0 -2px 16px rgba(0,0,0,.08); display:flex; flex-direction:column; gap:10px }
+  .input-row { display:flex; gap:10px; align-items:flex-end }
+  .input-wrapper { flex:1; background:#f8fafb; border:1px solid var(--border); border-radius:12px;
+                   padding:10px 14px; display:flex; flex-direction:column; gap:6px;
+                   transition:border-color .15s, background .15s }
+  .input-wrapper.dragging { border-color:var(--accent); background:#eef6fd }
+  textarea { border:0; background:transparent; font:inherit; resize:none; min-height:42px;
+             max-height:120px; outline:none }
+  .input-toolbar { display:flex; gap:8px; align-items:center }
+  .tool-btn { width:26px; height:26px; border-radius:6px; border:0; background:transparent;
+              cursor:pointer; display:flex; align-items:center; justify-content:center;
+              font-size:14px; color:var(--text-muted); transition:background .15s }
+  .tool-btn:hover { background:rgba(0,0,0,.06) }
+  .tool-btn:disabled { opacity:.4; cursor:not-allowed }
+  .tool-hint { font-size:11px; color:var(--text-muted) }
+
+  /* 附件预览条 */
+  .chips { display:flex; flex-wrap:wrap; gap:6px }
+  .chips:empty { display:none }
+  .chip { display:flex; align-items:center; gap:6px; padding:4px 6px 4px 4px;
+          background:#fff; border:1px solid var(--border); border-radius:8px; font-size:12px;
+          max-width:220px }
+  .chip img { width:26px; height:26px; object-fit:cover; border-radius:5px; flex:none }
+  .chip .ficon { width:26px; height:26px; display:flex; align-items:center; justify-content:center;
+                 background:#eef3f7; border-radius:5px; flex:none; font-size:13px }
+  .chip .fname { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .chip .fsize { color:var(--text-muted); flex:none; font-size:11px }
+  .chip .del { border:0; background:transparent; cursor:pointer; color:var(--text-muted);
+               font-size:15px; line-height:1; padding:0 2px; flex:none }
+  .chip .del:hover { color:#dc2626 }
+
+  .action-btns { display:flex; gap:8px; flex:none }
+  button.primary { padding:10px 20px; border-radius:10px; border:0; background:var(--accent);
+                   color:#fff; cursor:pointer; font:13px/1 inherit; font-weight:500;
+                   transition:background .15s }
+  button.primary:hover { background:#3a7bc8 }
+  button.primary:disabled { opacity:.5; cursor:not-allowed }
+  button.secondary { padding:10px 18px; border-radius:10px; border:1px solid var(--border);
+                     background:#fff; color:var(--text-primary); cursor:pointer;
+                     font:13px/1 inherit; transition:all .15s }
+  button.secondary:hover { background:#f8fafb }
+  button.secondary:disabled { opacity:.5; cursor:not-allowed }
+
+  .status-bar { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-muted);
+                padding:0 4px; min-height:18px }
+  .status-bar label { display:flex; align-items:center; gap:5px; cursor:pointer }
+
+  /* 弹窗 */
+  dialog { border:1px solid var(--border); border-radius:16px; padding:0; max-width:860px;
+           width:90vw; max-height:82vh; box-shadow:0 20px 60px rgba(0,0,0,.25) }
+  dialog::backdrop { background:rgba(0,0,0,.4) }
+  .dlg-h { padding:14px 18px; border-bottom:1px solid var(--border); display:flex;
+           justify-content:space-between; align-items:center; background:#f8fafb }
+  .dlg-h strong { font-size:15px; font-weight:600 }
+  .dlg-b { padding:16px 20px; overflow:auto; max-height:64vh }
+  .dlg-b pre { white-space:pre-wrap; word-break:break-word; font:13px/1.6 inherit; margin:0 }
+  .dlg-f { padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:10px;
+           justify-content:flex-end; background:#f8fafb }
+</style>
+</head>
+<body>
+<aside>
+  <header class="brand">
+    <div class="brand-name">同问 <span>AI</span></div>
+    <div class="brand-subtitle">多模型工作台</div>
+  </header>
+  <div class="sidebar-title">选择模型</div>
+  <div class="model-list" id="sites"></div>
+</aside>
+
+<div class="main-area">
+  <main id="cols"></main>
+
+  <footer>
+    <div class="input-row">
+      <div class="input-wrapper">
+        <div class="chips" id="chips"></div>
+        <textarea id="q" placeholder="输入问题，Enter 发送…" rows="2"></textarea>
+        <div class="input-toolbar">
+          <button class="tool-btn" id="pickFile" title="添加附件">📎</button>
+          <button class="tool-btn" id="pickImage" title="添加图片">🖼️</button>
+          <span class="tool-hint" id="fileHint"></span>
+        </div>
+        <input type="file" id="fileInput" multiple hidden>
+        <input type="file" id="imageInput" accept="image/*" multiple hidden>
+      </div>
+      <div class="action-btns">
+        <button id="go" class="primary">发送</button>
+        <button id="collect" class="secondary">收集对比</button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <label><input type="checkbox" id="autosend" checked> 自动发送</label>
+      <span id="status"></span>
+    </div>
+  </footer>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-h">
+    <strong>对比 prompt 已生成</strong>
+    <span class="meta" id="dlgMeta"></span>
+  </div>
+  <div class="dlg-b"><pre id="dlgText"></pre></div>
+  <div class="dlg-f">
+    <button class="ghost" id="dlgClose">关闭</button>
+    <button id="dlgCopy">复制到剪贴板</button>
+  </div>
+</dialog>
+
+<script src="adapters.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>
