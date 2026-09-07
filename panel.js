@@ -10,8 +10,10 @@ const $ = (s) => document.querySelector(s);
 const el = (t, p = {}) => Object.assign(document.createElement(t), p);
 
 const STORE_KEY = 'askmany:enabled';
+const STORE_ORDER_KEY = 'askmany:order';
 const state = {
   enabled: new Set(),
+  order: [], // siteId[] 自定义排序数组
   frames: new Map(), // siteId -> {tabId, frameId}
   busy: false,
   attachments: [], // {name, type, size, data(base64), url(预览用)}
@@ -108,7 +110,8 @@ function renderChips() {
   });
 
   // 有附件时提示哪些模型不支持，避免用户以为发过去了
-  const unsupported = [...state.enabled]
+  const unsupported = state.order
+    .filter((id) => state.enabled.has(id))
     .map((id) => A.byId(id))
     .filter((s) => s && !s.supportsFiles)
     .map((s) => s.name);
@@ -141,6 +144,51 @@ function send(siteId, payload, timeoutMs = 200000) {
   });
 }
 
+// --------------------------------------------------------------------- 排序与持久化
+async function saveOrder() {
+  await chrome.storage.local.set({ [STORE_ORDER_KEY]: state.order });
+}
+
+function applyOrder() {
+  // 1. 设置侧栏项和列的 CSS order
+  state.order.forEach((id, idx) => {
+    const item = document.getElementById(`item-${id}`);
+    if (item) item.style.order = String(idx);
+    const col = document.getElementById(`col-${id}`);
+    if (col) col.style.order = String(idx);
+  });
+
+  // 2. 根据当前启用（可见）的列更新左移/右移按钮的禁用状态
+  const visible = state.order.filter((id) => state.enabled.has(id));
+  visible.forEach((id, idx) => {
+    const leftBtn = document.getElementById(`btn-left-${id}`);
+    const rightBtn = document.getElementById(`btn-right-${id}`);
+    if (leftBtn) leftBtn.disabled = (idx === 0);
+    if (rightBtn) rightBtn.disabled = (idx === visible.length - 1);
+  });
+}
+
+async function moveModel(siteId, delta) {
+  const visible = state.order.filter((id) => state.enabled.has(id));
+  const currIdx = visible.indexOf(siteId);
+  if (currIdx === -1) return;
+  const targetIdx = currIdx + delta;
+  if (targetIdx < 0 || targetIdx >= visible.length) return;
+
+  const targetId = visible[targetIdx];
+  const idxA = state.order.indexOf(siteId);
+  const idxB = state.order.indexOf(targetId);
+  if (idxA === -1 || idxB === -1) return;
+
+  // 交换顺序
+  const temp = state.order[idxA];
+  state.order[idxA] = state.order[idxB];
+  state.order[idxB] = temp;
+
+  await saveOrder();
+  applyOrder();
+}
+
 // --------------------------------------------------------------------- 渲染
 function paintDots() {
   for (const a of A.ADAPTERS) {
@@ -153,11 +201,17 @@ function paintDots() {
   }
 }
 
+let draggedId = null;
+
 function buildHeader() {
   const box = $('#sites');
   box.textContent = '';
   for (const a of A.ADAPTERS) {
-    const item = el('div', { className: 'model-item' });
+    const item = el('div', { className: 'model-item', id: `item-${a.id}` });
+    item.draggable = true;
+
+    const handle = el('span', { className: 'drag-handle', textContent: '⋮⋮', title: '按住拖拽排序' });
+
     const cb = el('input', { type: 'checkbox', id: `chk-${a.id}` });
     cb.checked = state.enabled.has(a.id);
     cb.onchange = () => {
@@ -166,40 +220,99 @@ function buildHeader() {
       chrome.storage.local.set({ [STORE_KEY]: [...state.enabled] });
       buildCols();
     };
+
     const dot = el('span', { className: 'model-dot', id: `dot-${a.id}` });
     const lab = el('label', { htmlFor: `chk-${a.id}`, className: 'model-name', textContent: a.name });
-    item.append(cb, dot, lab);
+
+    item.addEventListener('dragstart', (e) => {
+      draggedId = a.id;
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', a.id);
+    });
+
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      draggedId = null;
+      document.querySelectorAll('.model-item').forEach((el) => el.classList.remove('drag-over'));
+    });
+
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (draggedId && draggedId !== a.id) {
+        item.classList.add('drag-over');
+      }
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over');
+    });
+
+    item.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      if (!draggedId || draggedId === a.id) return;
+
+      const fromIdx = state.order.indexOf(draggedId);
+      const toIdx = state.order.indexOf(a.id);
+      if (fromIdx === -1 || toIdx === -1) return;
+
+      state.order.splice(fromIdx, 1);
+      state.order.splice(toIdx, 0, draggedId);
+
+      await saveOrder();
+      applyOrder();
+    });
+
+    item.append(handle, cb, dot, lab);
     box.append(item);
   }
 }
 
 function buildCols() {
   const main = $('#cols');
-  const want = A.ADAPTERS.filter((a) => state.enabled.has(a.id));
 
   // 已存在的列保留，避免重建 iframe 把会话刷掉。
   for (const a of A.ADAPTERS) {
     const existing = document.getElementById(`col-${a.id}`);
     const on = state.enabled.has(a.id);
     if (on && !existing) {
-      // 新建列，插入到正确位置（按 ADAPTERS 顺序）
-      const idx = want.indexOf(a);
-      const next = want.slice(idx + 1).map((x) => document.getElementById(`col-${x.id}`)).find(Boolean);
-      if (next) main.insertBefore(makeCol(a), next);
-      else main.append(makeCol(a));
+      main.append(makeCol(a));
     } else if (!on && existing) {
       existing.remove();
       state.frames.delete(a.id);
     }
   }
   paintDots();
+  applyOrder();
 }
 
 function makeCol(a) {
   const col = el('div', { className: 'col', id: `col-${a.id}` });
   const h = el('h2');
-  h.append(el('span', { textContent: a.name }),
-           el('span', { className: 'meta', id: `meta-${a.id}` }));
+  const nameSpan = el('span', { className: 'name', textContent: a.name });
+  const metaSpan = el('span', { className: 'meta', id: `meta-${a.id}` });
+
+  const actions = el('div', { className: 'col-actions' });
+  const leftBtn = el('button', {
+    className: 'col-btn',
+    id: `btn-left-${a.id}`,
+    title: '向左移动',
+    textContent: '◀',
+  });
+  leftBtn.onclick = () => moveModel(a.id, -1);
+
+  const rightBtn = el('button', {
+    className: 'col-btn',
+    id: `btn-right-${a.id}`,
+    title: '向右移动',
+    textContent: '▶',
+  });
+  rightBtn.onclick = () => moveModel(a.id, 1);
+
+  actions.append(leftBtn, rightBtn);
+  h.append(nameSpan, metaSpan, actions);
 
   const frame = el('iframe', { src: a.url, id: `if-${a.id}` });
 
@@ -234,7 +347,7 @@ async function ask() {
   const files = state.attachments;
   // 只有附件没有文字也允许发（发图问"这是什么"是常见用法）
   if ((!text && !files.length) || state.busy) return;
-  const targets = [...state.enabled];
+  const targets = state.order.filter((id) => state.enabled.has(id));
   if (!targets.length) { $('#status').textContent = '先勾选至少一个模型'; return; }
 
   state.busy = true;
@@ -323,7 +436,7 @@ async function ask() {
 
 async function collect() {
   if (state.busy) return;
-  const targets = [...state.enabled].filter((id) => state.frames.has(id));
+  const targets = state.order.filter((id) => state.enabled.has(id) && state.frames.has(id));
   if (!targets.length) { $('#status').textContent = '没有就绪的模型'; return; }
 
   state.busy = true;
@@ -444,12 +557,25 @@ $('#dlgCopy').onclick = async () => {
 };
 
 (async () => {
-  const saved = await chrome.storage.local.get(STORE_KEY);
+  const saved = await chrome.storage.local.get([STORE_KEY, STORE_ORDER_KEY]);
   const ids = saved[STORE_KEY];
   state.enabled = new Set(
     Array.isArray(ids) && ids.length ? ids : ['chatgpt', 'deepseek']
   );
+
+  const savedOrder = saved[STORE_ORDER_KEY];
+  const allIds = A.ADAPTERS.map((a) => a.id);
+  if (Array.isArray(savedOrder) && savedOrder.length) {
+    state.order = [
+      ...savedOrder.filter((id) => allIds.includes(id)),
+      ...allIds.filter((id) => !savedOrder.includes(id)),
+    ];
+  } else {
+    state.order = [...allIds];
+  }
+
   buildHeader();
   buildCols();
+  applyOrder();
   await chrome.runtime.sendMessage({ type: 'ensure-framing' }).catch(() => {});
 })();

@@ -32,14 +32,20 @@
                    padding:0 4px; letter-spacing:0 }
   .model-list { display:flex; flex-direction:column; gap:6px; flex:1; overflow-y:auto }
   .model-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px;
-                background:rgba(255,255,255,.15); cursor:pointer; transition:background .15s }
+                background:rgba(255,255,255,.15); cursor:pointer; transition:background .15s, opacity .15s;
+                user-select:none }
   .model-item:hover { background:rgba(255,255,255,.25) }
-  .model-item input[type="checkbox"] { flex:none }
+  .model-item.dragging { opacity:0.35 }
+  .model-item.drag-over { border:1px dashed #fff; background:rgba(255,255,255,.35) }
+  .drag-handle { cursor:grab; color:rgba(25,56,74,.45); font-size:11px; line-height:1;
+                 padding:2px 1px; flex:none; user-select:none; letter-spacing:-1px }
+  .drag-handle:active { cursor:grabbing }
+  .model-item input[type="checkbox"] { flex:none; cursor:pointer }
   .model-dot { width:8px; height:8px; border-radius:50%; background:#d4d4d8; flex:none }
   .model-dot.live { background:#22c55e }
   .model-dot.warn { background:#f59e0b }
   .model-name { flex:1; font-size:13px; color:#2c3e50; white-space:nowrap; overflow:hidden;
-                text-overflow:ellipsis }
+                text-overflow:ellipsis; cursor:pointer }
 
   /* 右侧主区 */
   .main-area { flex:1; display:flex; flex-direction:column; min-width:0 }
@@ -52,8 +58,15 @@
   .col h2 { flex:none; margin:0; padding:10px 14px; font-size:13px; font-weight:600;
             border-bottom:1px solid var(--border); background:#f8fafb;
             display:flex; align-items:center; gap:8px }
-  .col h2 .name { flex:1 }
+  .col h2 .name { flex:none }
   .col h2 .meta { font-weight:400; color:var(--text-muted); font-size:11px }
+  .col-actions { display:flex; align-items:center; gap:2px; margin-left:auto }
+  .col-btn { width:20px; height:20px; border-radius:4px; border:0; background:transparent;
+             cursor:pointer; display:flex; align-items:center; justify-content:center;
+             font-size:10px; color:var(--text-muted); transition:background .15s, color .15s;
+             padding:0; line-height:1 }
+  .col-btn:hover:not(:disabled) { background:rgba(0,0,0,.08); color:var(--text-primary) }
+  .col-btn:disabled { opacity:.2; cursor:not-allowed }
   .col iframe { flex:1; width:100%; border:0; min-height:0 }
   .col .fallback { flex:1; padding:20px; font-size:13px; color:var(--text-muted); display:none;
                    flex-direction:column; gap:10px; align-items:center; justify-content:center;

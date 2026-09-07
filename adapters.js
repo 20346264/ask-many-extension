@@ -20,6 +20,7 @@
         d.querySelector('button[data-testid="send-button"]') ||
         d.querySelector('button[aria-label*="Send" i]'),
       answers: (d) => d.querySelectorAll('[data-message-author-role="assistant"]'),
+      inputSettleMs: 150,
 
       // 附件支持。fileInput 找隐藏的 <input type=file>；uploadedChips 用来判断
       // 站点是否已经把文件收下（缩略图/文件条出现），这些类名容易随改版失效，
@@ -112,9 +113,29 @@
       name: 'Gemini',
       url: 'https://gemini.google.com/app',
       host: /(^|\.)gemini\.google\.com$/,
-      input: (d) => d.querySelector('div.ql-editor[contenteditable="true"]'),
-      sendBtn: (d) => d.querySelector('button.send-button'),
+      input: (d) =>
+        d.querySelector('div.ql-editor[contenteditable="true"]') ||
+        d.querySelector('rich-textarea div[contenteditable="true"]') ||
+        d.querySelector('div[contenteditable="true"]'),
+      sendBtn: (d) =>
+        d.querySelector('button.send-button') ||
+        d.querySelector('button[aria-label*="Send" i]') ||
+        d.querySelector('button[aria-label*="发送" i]') ||
+        d.querySelector('.send-button-container button'),
       answers: (d) => d.querySelectorAll('message-content'),
+
+      supportsFiles: true,
+      inputSettleMs: 200,
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]') ||
+        d.querySelector('uploader-file-picker input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          'uploader-file-card, [data-test-id*="file-card"], [class*="file-preview"], ' +
+          '[class*="file-card"], button[aria-label*="delete" i], button[aria-label*="remove" i], ' +
+          'button[aria-label*="删除" i], img[src^="blob:"], img[src^="data:"]'
+        ),
     },
     {
       id: 'qwen',
@@ -175,33 +196,58 @@
   }
 
   const inputText = (el) => (el ? (el.value ?? el.innerText ?? el.textContent ?? '') : '');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ProseMirror / Quill / Lexical 用合成 paste 最稳；改 innerHTML 会让编辑器内部状态脱节。
-  function setContentEditable(win, doc, el, text) {
+  async function setContentEditable(win, doc, el, text) {
     el.focus();
 
     const selectContents = () => {
-      const sel = win.getSelection();
-      sel.removeAllRanges();
-      const range = doc.createRange();
-      range.selectNodeContents(el);
-      sel.addRange(range);
+      try {
+        doc.execCommand('selectAll', false, null);
+      } catch {
+        const sel = win.getSelection();
+        sel.removeAllRanges();
+        const range = doc.createRange();
+        range.selectNodeContents(el);
+        sel.addRange(range);
+      }
     };
     selectContents();
 
     const dt = new win.DataTransfer();
     dt.setData('text/plain', text);
-    el.dispatchEvent(
-      new win.ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
-    );
+    const pasteEvt = new win.ClipboardEvent('paste', {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
+    const handled = !el.dispatchEvent(pasteEvt);
+
+    const probe = text.trim().slice(0, 20);
 
     /*
-     * preventDefault 只说明站点拦截了 paste，不代表它接受了合成事件。Claude
-     * 会拦截但不写字；若 DOM 中没有目标文本，必须走浏览器的 insertText
-     * 编辑事务。重新选择内容可确保它替换旧 prompt，而不是追加。
+     * 关键修复：给异步编辑器（如 ChatGPT 的 ProseMirror / Lexical）留出处理 paste 的时间。
+     * 若直接在同一调用栈中同步检查，DOM 尚未更新，就会误判为 paste 失败并触发下面的 execCommand，
+     * 导致 paste 和 execCommand 各自插入了一遍（出现重复，如 "idea-setidea-set"）。
+     *
+     * 如果 paste 被站点拦截处理（handled 为 true），轮询检查文字是否已经落入 DOM；
+     * 只有在等待后 DOM 中仍无文字时（如 Claude 拦截 paste 但不写入文字），才降级调用 execCommand。
      */
-    const probe = text.trim().slice(0, 20);
-    if (probe && !inputText(el).includes(probe)) {
+    let inserted = false;
+    if (probe) {
+      // 若 paste 被站点接手，等待最多 150ms（每 25ms 轮询一次）
+      const iters = handled ? 6 : 1;
+      for (let i = 0; i < iters; i++) {
+        if (inputText(el).includes(probe)) {
+          inserted = true;
+          break;
+        }
+        await sleep(25);
+      }
+    }
+
+    if (!inserted && probe) {
       selectContents();
       doc.execCommand('insertText', false, text);
     }
@@ -211,11 +257,11 @@
     el.dispatchEvent(new win.Event('change', { bubbles: true }));
   }
 
-  function fillInput(site, win, doc, text) {
+  async function fillInput(site, win, doc, text) {
     const el = site.input(doc);
     if (!el) return false;
     if (el.tagName === 'TEXTAREA') setTextareaValue(win, el, text);
-    else setContentEditable(win, doc, el, text);
+    else await setContentEditable(win, doc, el, text);
     return true;
   }
 
@@ -244,7 +290,13 @@
         continue;
       }
       foundInput = true;
-      if (!fillInput(site, win, doc, text)) {
+
+      // 如果当前输入框已经包含目标文本（例如上一次 paste 虽迟但已成功到达），严禁重复填入
+      if (probe && currentMatch()) {
+        return { ok: true, verified: true };
+      }
+
+      if (!(await fillInput(site, win, doc, text))) {
         await sleep(200);
         continue;
       }
@@ -415,8 +467,6 @@
     const disabled = btn.disabled;
     return ariaDisabled !== 'true' && !disabled;
   }
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function pressEnter(site, win, doc) {
     const el = site.input(doc);
