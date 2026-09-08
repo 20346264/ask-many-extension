@@ -55,6 +55,23 @@
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
     flex: none;
     z-index: 10;
+    transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                padding 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.18s ease-in-out;
+    overflow: hidden;
+  }
+  aside > * {
+    min-width: 188px;
+  }
+  aside.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    border-right: 0 !important;
+    box-shadow: none !important;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .brand {
@@ -62,7 +79,27 @@
     border-bottom: 1px solid var(--sidebar-border);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+  }
+  .sidebar-collapse-btn {
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex: none;
+  }
+  .sidebar-collapse-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.25);
   }
   .brand-badge {
     width: 34px;
@@ -319,6 +356,33 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .sidebar-toggle-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    border: 1px solid var(--border-light);
+    background: #ffffff;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    flex: none;
+  }
+  .sidebar-toggle-btn:hover {
+    background: #f8fafc;
+    color: #4f46e5;
+    border-color: #cbd5e1;
+    transform: translateY(-0.5px);
+  }
+  .sidebar-toggle-btn.sidebar-is-collapsed {
+    background: #eef2ff;
+    color: #4f46e5;
+    border-color: #c7d2fe;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
   }
   .layout-title {
     font-size: 12px;
@@ -1090,7 +1154,7 @@
 </style>
 </head>
 <body>
-<aside>
+<aside id="sidebar">
   <header class="brand">
     <div class="brand-badge">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1098,9 +1162,14 @@
       </svg>
     </div>
     <div class="brand-text">
-      <div class="brand-name">同问 <span class="highlight">AI</span> <span class="version-tag">v1.1</span></div>
+      <div class="brand-name">同问 <span class="highlight">AI</span> <span class="version-tag">v1.2</span></div>
       <div class="brand-subtitle">多模型并排提问工作台</div>
     </div>
+    <button class="sidebar-collapse-btn" id="btnCollapseSidebar" title="收起侧边栏 (Ctrl+B)">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/>
+      </svg>
+    </button>
   </header>
   <div class="sidebar-header">
     <div class="sidebar-title">参与模型</div>
@@ -1120,6 +1189,12 @@
 <div class="main-area">
   <div class="layout-bar">
     <div class="layout-info">
+      <button class="sidebar-toggle-btn" id="btnToggleSidebar" title="收起/展开侧边栏 (Ctrl+B)">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M9 3v18"/>
+        </svg>
+      </button>
       <span class="layout-title">展示布局</span>
       <span class="layout-count" id="enabledCount">已选 0 个模型</span>
     </div>

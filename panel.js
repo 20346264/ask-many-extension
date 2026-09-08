@@ -14,6 +14,7 @@ const STORE_ORDER_KEY = 'askmany:order';
 const STORE_LAYOUT_KEY = 'askmany:layout';
 const STORE_JUDGE_KEY = 'askmany:judge';
 const STORE_AUTO_JUDGE_KEY = 'askmany:auto_judge';
+const STORE_SIDEBAR_COLLAPSED_KEY = 'askmany:sidebar_collapsed';
 const state = {
   enabled: new Set(),
   order: [], // siteId[] 自定义排序数组
@@ -23,6 +24,7 @@ const state = {
   layout: 'grid', // 'grid' | 'scroll' | 'col-2' | 'col-3'
   collapsed: new Set(), // siteId[]
   maximized: null, // siteId | null
+  sidebarCollapsed: false, // 侧边栏是否收起
   judgeId: null, // siteId 担任对比裁判，不参与同问，作答完毕后接收提示词
   autoJudge: true, // 其他模型完成后自动派发给裁判
   judgePrompt: '', // 最近一次生成的对比提示词
@@ -505,6 +507,24 @@ function toggleCollapse(id) {
     state.collapsed.add(id);
     col.classList.add('collapsed');
   }
+}
+
+function toggleSidebar(forceState) {
+  const willCollapse = typeof forceState === 'boolean' ? forceState : !state.sidebarCollapsed;
+  state.sidebarCollapsed = willCollapse;
+
+  const aside = $('aside');
+  if (aside) {
+    aside.classList.toggle('collapsed', willCollapse);
+  }
+
+  const toggleBtn = $('#btnToggleSidebar');
+  if (toggleBtn) {
+    toggleBtn.classList.toggle('sidebar-is-collapsed', willCollapse);
+    toggleBtn.title = willCollapse ? '展开侧边栏 (Ctrl+B)' : '收起侧边栏 (Ctrl+B)';
+  }
+
+  chrome.storage.local.set({ [STORE_SIDEBAR_COLLAPSED_KEY]: willCollapse });
 }
 
 function setLayoutMode(mode) {
@@ -1106,6 +1126,7 @@ $('#dlgCopy').onclick = async () => {
     STORE_LAYOUT_KEY,
     STORE_JUDGE_KEY,
     STORE_AUTO_JUDGE_KEY,
+    STORE_SIDEBAR_COLLAPSED_KEY,
   ]);
   const ids = saved[STORE_KEY];
   state.enabled = new Set(
@@ -1175,6 +1196,18 @@ $('#dlgCopy').onclick = async () => {
     }
   }, { passive: false });
 
+  // 侧边栏折叠与展开
+  $('#btnToggleSidebar')?.addEventListener('click', () => toggleSidebar());
+  $('#btnCollapseSidebar')?.addEventListener('click', () => toggleSidebar(true));
+
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      if (e.isComposing) return;
+      e.preventDefault();
+      toggleSidebar();
+    }
+  });
+
   // 侧边栏批量选择与常用预设
   $('#btnSelectAll')?.addEventListener('click', selectAllModels);
   $('#btnClearAll')?.addEventListener('click', clearAllModels);
@@ -1186,6 +1219,10 @@ $('#dlgCopy').onclick = async () => {
   applyOrder();
   setJudge(state.judgeId);
   populateJudgeSelect();
+
+  if (saved[STORE_SIDEBAR_COLLAPSED_KEY]) {
+    toggleSidebar(true);
+  }
 
   const savedLayout = saved[STORE_LAYOUT_KEY] || 'grid';
   setLayoutMode(savedLayout);
