@@ -15,6 +15,8 @@ const STRIP_HEADERS = [
   { header: 'x-frame-options', operation: 'remove' },
   { header: 'content-security-policy', operation: 'remove' },
   { header: 'content-security-policy-report-only', operation: 'remove' },
+  { header: 'cross-origin-opener-policy', operation: 'remove' },
+  { header: 'cross-origin-embedder-policy', operation: 'remove' },
 ];
 
 const TARGET_DOMAINS = [
@@ -24,7 +26,17 @@ const TARGET_DOMAINS = [
   'claude.ai',
   'gemini.google.com',
   'chat.qwen.ai',
+  'tongyi.aliyun.com',
   'yuanbao.tencent.com',
+  'kimi.moonshot.cn',
+  'kimi.ai',
+  'doubao.com',
+  'chatglm.cn',
+  'grok.com',
+  'perplexity.ai',
+  'aistudio.xiaomimimo.com',
+  'mimo.mi.com',
+  'xiaomimimo.com',
 ];
 
 const panelUrl = () => chrome.runtime.getURL('panel.html');

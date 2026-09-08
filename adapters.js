@@ -48,15 +48,46 @@
       // 必须观察输入框清空，未清空就在有限时间内重试。
       verifySubmit: true,
       submitVerifyMs: 10000,
-      input: (d) => d.querySelector('#chat-input') || d.querySelector('textarea'),
-      sendBtn: (d) =>
-        // 先按语义找，找不到再按位置猜。反过来（先猜位置）会在侧栏按钮上乱点。
-        d.querySelector('div[class*="send"][role="button"]') ||
-        d.querySelector('[role="button"][aria-label*="send" i]') ||
-        bottomRightMost(
-          (d.querySelector('#chat-input')?.parentElement?.parentElement || d)
-            .querySelectorAll('[role="button"]')
-        ),
+      input: (d) => {
+        exitDeepSeekSelectMode(d);
+        return d.querySelector('#chat-input') || d.querySelector('textarea');
+      },
+      sendBtn: (d) => {
+        exitDeepSeekSelectMode(d);
+
+        // 1. 优先语义匹配发送按钮，且必须通过黑名单过滤（杜绝误点分享、取消等）
+        const explicitBtn =
+          d.querySelector('button[data-testid*="send" i]') ||
+          d.querySelector('button[aria-label*="发送" i]') ||
+          d.querySelector('button[aria-label*="Send" i]') ||
+          d.querySelector('[role="button"][aria-label*="发送" i]') ||
+          d.querySelector('[role="button"][aria-label*="Send" i]') ||
+          d.querySelector('div[class*="send"][role="button"]');
+        if (explicitBtn && !isForbiddenSendButton(explicitBtn) && visible(explicitBtn)) {
+          return explicitBtn;
+        }
+
+        // 2. 严格限制在输入框近邻容器内，绝不落到全局 document，防止误触聊天气泡里的分享按钮
+        const input = d.querySelector('#chat-input') || d.querySelector('textarea');
+        if (input) {
+          const container =
+            input.closest('form') ||
+            input.closest('[class*="chat-input"]') ||
+            input.closest('[class*="input-box"]') ||
+            input.closest('[class*="chat-box"]') ||
+            input.parentElement?.parentElement?.parentElement ||
+            input.parentElement?.parentElement;
+          if (container) {
+            const safeBtns = Array.from(
+              container.querySelectorAll('button, [role="button"], div[tabindex="0"]')
+            ).filter((b) => !isForbiddenSendButton(b) && visible(b));
+            if (safeBtns.length) {
+              return bottomRightMost(safeBtns);
+            }
+          }
+        }
+        return null;
+      },
       answers: (d) => d.querySelectorAll('div[class*="ds-markdown"]'),
 
       supportsFiles: true,
@@ -141,10 +172,41 @@
       id: 'qwen',
       name: '通义千问',
       url: 'https://chat.qwen.ai/',
-      host: /(^|\.)chat\.qwen\.ai$/,
-      input: (d) => d.querySelector('textarea#chat-input') || d.querySelector('textarea'),
-      sendBtn: (d) => d.querySelector('button[class*="send"]'),
-      answers: (d) => d.querySelectorAll('div[class*="markdown"]'),
+      host: /(^|\.)(chat\.qwen\.ai|tongyi\.aliyun\.com|qianwen\.com)$/,
+      input: (d) =>
+        d.querySelector('textarea#chat-input') ||
+        d.querySelector('textarea.message-input-textarea') ||
+        d.querySelector('textarea[placeholder]') ||
+        d.querySelector('div[data-slate-editor="true"][contenteditable="true"]') ||
+        d.querySelector('div[contenteditable="true"][role="textbox"]') ||
+        d.querySelector('div[contenteditable="true"]') ||
+        d.querySelector('textarea'),
+      sendBtn: (d) =>
+        d.querySelector('button[class*="send"]:not([disabled])') ||
+        d.querySelector('div.message-input-right-button-send button:not([disabled])') ||
+        d.querySelector('[data-icon-type="qwpcicon-sendChat"]')?.closest('button') ||
+        d.querySelector('div.message-input-right-button-send') ||
+        d.querySelector('button[aria-label*="发送" i]') ||
+        d.querySelector('button[aria-label*="Send" i]') ||
+        d.querySelector('button[class*="send"]') ||
+        d.querySelector('button[type="submit"]'),
+      answers: (d) =>
+        d.querySelectorAll('div[class*="qwen-markdown"], div[class*="markdown"], div.message-content'),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]') ||
+        d.querySelector('.ant-upload input[type="file"]') ||
+        d.querySelector('[class*="upload"] input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="file-item"], [class*="fileItem"], [class*="file-card"], [class*="fileCard"], ' +
+          '[class*="attachment"], [class*="ant-upload-list-item"], [class*="upload-item"], ' +
+          '[class*="preview-item"], img[src^="blob:"], img[src^="data:"]'
+        ),
     },
     {
       id: 'yuanbao',
@@ -152,15 +214,308 @@
       url: 'https://yuanbao.tencent.com/chat',
       host: /(^|\.)yuanbao\.tencent\.com$/,
       input: (d) =>
-        d.querySelector('div.ql-editor[contenteditable="true"]') || d.querySelector('textarea'),
+        d.querySelector('div.ql-editor[contenteditable="true"]') ||
+        d.querySelector('div[contenteditable="true"][role="textbox"]') ||
+        d.querySelector('div[contenteditable="true"]') ||
+        d.querySelector('textarea'),
       sendBtn: (d) =>
-        d.querySelector('a[class*="send"]') || d.querySelector('[class*="send-btn"]'),
-      answers: (d) => d.querySelectorAll('div[class*="hyc-content-text"]'),
+        d.querySelector('a#yuanbao-send-btn') ||
+        d.querySelector('a[id*="send-btn"]') ||
+        d.querySelector('[class*="send-btn"]:not([class*="disabled"])') ||
+        d.querySelector('span.icon-send')?.closest('a, button, div[role="button"]') ||
+        d.querySelector('a[class*="send"]') ||
+        d.querySelector('[class*="send-btn"]') ||
+        d.querySelector('button[class*="send"]'),
+      answers: (d) =>
+        d.querySelectorAll('div[class*="hyc-content-text"], div[class*="agent-chat__bubble"], div[class*="content-text"]'),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]') ||
+        d.querySelector('[class*="upload"] input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="file-item"], [class*="fileItem"], [class*="attachment"], ' +
+          '[class*="file-card"], [class*="fileCard"], [class*="doc-card"], ' +
+          '[class*="doc-item"], [class*="hyc-file"], [class*="upload-file"], ' +
+          'img[src^="blob:"], img[src^="data:"]'
+        ),
+    },
+    {
+      id: 'kimi',
+      name: 'Kimi',
+      url: 'https://kimi.moonshot.cn/',
+      host: /(^|\.)kimi\.(moonshot\.cn|ai)$/,
+      input: (d) =>
+        d.querySelector('div.chat-input-editor[contenteditable="true"]') ||
+        d.querySelector('[data-slate-editor="true"][contenteditable="true"]') ||
+        d.querySelector('div[contenteditable="true"].chat-input') ||
+        d.querySelector('div[contenteditable="true"][role="textbox"]') ||
+        d.querySelector('#chat-input[contenteditable="true"]') ||
+        d.querySelector('div[contenteditable="true"]') ||
+        d.querySelector('textarea'),
+      sendBtn: (d) =>
+        d.querySelector('div.send-button-container:not(.disabled) button') ||
+        d.querySelector('div.send-button-container:not(.disabled)') ||
+        d.querySelector('div[class*="send-button-container"]:not(.disabled)') ||
+        d.querySelector('div[class*="send-button"]:not([class*="disabled"])') ||
+        d.querySelector('button[class*="send"]:not([disabled])') ||
+        d.querySelector('[data-testid*="send"]') ||
+        d.querySelector('button[type="submit"]:not([disabled])') ||
+        d.querySelector('button[type="submit"]'),
+      answers: (d) =>
+        d.querySelectorAll('div.segment-content, div[class*="segment-content"], div[class*="markdown"]'),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="file-item"], [class*="fileItem"], [class*="attachment"], ' +
+          '[class*="file-card"], [class*="fileCard"], [class*="doc-card"], ' +
+          'img[src^="blob:"], img[src^="data:"]'
+        ),
+    },
+    {
+      id: 'doubao',
+      name: '豆包',
+      url: 'https://www.doubao.com/chat/',
+      host: /(^|\.)doubao\.com$/,
+      input: (d) =>
+        d.querySelector('textarea[data-testid="chat_input_input"]') ||
+        d.querySelector('textarea[placeholder]') ||
+        d.querySelector('div[contenteditable="true"][role="textbox"]') ||
+        d.querySelector('div[contenteditable="true"]') ||
+        d.querySelector('textarea'),
+      sendBtn: (d) =>
+        d.querySelector('button[data-testid="chat_input_send_button"]') ||
+        d.querySelector('button[id*="send"]') ||
+        d.querySelector('button[class*="send"]:not([disabled])') ||
+        d.querySelector('button[type="submit"]:not([disabled])') ||
+        d.querySelector('button[aria-label*="发送" i]') ||
+        d.querySelector('button[class*="send"]') ||
+        d.querySelector('button[type="submit"]'),
+      answers: (d) =>
+        d.querySelectorAll(
+          'div[data-testid="message-content"], div[class*="message-content"], ' +
+          'div[class*="message-card"], div[class*="markdown"]'
+        ),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]') ||
+        d.querySelector('[class*="upload"] input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="attachment"], [class*="file"], [class*="upload-item"], ' +
+          'img[src^="blob:"], img[src^="data:"]'
+        ),
+    },
+    {
+      id: 'chatglm',
+      name: '智谱清言',
+      url: 'https://chatglm.cn/',
+      host: /(^|\.)chatglm\.cn$/,
+      input: (d) =>
+        d.querySelector('textarea#chat-input') ||
+        d.querySelector('textarea[placeholder]') ||
+        d.querySelector('div[contenteditable="true"][role="textbox"]') ||
+        d.querySelector('div[contenteditable="true"]') ||
+        d.querySelector('textarea'),
+      sendBtn: (d) =>
+        d.querySelector('button.send-btn') ||
+        d.querySelector('div[class*="send-btn"]') ||
+        d.querySelector('button[class*="send"]:not([disabled])') ||
+        d.querySelector('button[type="submit"]:not([disabled])') ||
+        d.querySelector('button[aria-label*="发送" i]') ||
+        d.querySelector('button[class*="send"]') ||
+        d.querySelector('button[type="submit"]'),
+      answers: (d) =>
+        d.querySelectorAll(
+          'div[class*="conversation-item-response"], div[class*="message-content"], ' +
+          'div[class*="markdown"], div[class*="bubble"]'
+        ),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]') ||
+        d.querySelector('[class*="upload"] input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="file-item"], [class*="upload-item"], [class*="attachment"], ' +
+          'img[src^="blob:"], img[src^="data:"]'
+        ),
+    },
+    {
+      id: 'grok',
+      name: 'Grok',
+      url: 'https://grok.com/',
+      host: /(^|\.)grok\.com$/,
+      input: (d) =>
+        d.querySelector('textarea') ||
+        d.querySelector('div.ProseMirror[contenteditable="true"]') ||
+        d.querySelector('div[contenteditable="true"][role="textbox"]') ||
+        d.querySelector('div[contenteditable="true"]'),
+      sendBtn: (d) =>
+        d.querySelector('button[type="submit"]:not([disabled])') ||
+        d.querySelector('button[aria-label*="Send" i]') ||
+        d.querySelector('button[aria-label*="Submit" i]') ||
+        d.querySelector('[role="button"][aria-label*="Send" i]') ||
+        d.querySelector('button[type="submit"]'),
+      answers: (d) =>
+        d.querySelectorAll(
+          'div.message-bubble, div[class*="response"], div[class*="message-row"], div.prose, div[class*="markdown"]'
+        ),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="attachment"], [class*="file-preview"], img[src^="blob:"], img[src^="data:"]'
+        ),
+    },
+    {
+      id: 'perplexity',
+      name: 'Perplexity',
+      url: 'https://www.perplexity.ai/',
+      host: /(^|\.)perplexity\.ai$/,
+      input: (d) =>
+        d.querySelector('textarea[placeholder*="Ask" i]') ||
+        d.querySelector('textarea[placeholder*="随时" i]') ||
+        d.querySelector('textarea') ||
+        d.querySelector('div[contenteditable="true"]'),
+      sendBtn: (d) =>
+        d.querySelector('button[aria-label*="Submit" i]') ||
+        d.querySelector('button[aria-label*="Send" i]') ||
+        d.querySelector('button[aria-label*="提交" i]') ||
+        d.querySelector('button[type="submit"]:not([disabled])') ||
+        d.querySelector('button[type="submit"]'),
+      answers: (d) =>
+        d.querySelectorAll(
+          'div.prose, div[class*="answer"], div[class*="markdown"]'
+        ),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="attachment"], [class*="file-preview"], img[src^="blob:"], img[src^="data:"]'
+        ),
+    },
+    {
+      id: 'mimo',
+      name: '小米 MiMo',
+      url: 'https://aistudio.xiaomimimo.com/?forcePage=chat',
+      host: /(^|\.)(aistudio\.xiaomimimo\.com|mimo\.mi\.com|xiaomimimo\.com)$/,
+      input: (d) =>
+        d.querySelector('textarea[placeholder*="尽管问"]') ||
+        d.querySelector('textarea[placeholder*="Ask me anything" i]') ||
+        d.querySelector('textarea[placeholder*="想做什么" i]') ||
+        d.querySelector('textarea') ||
+        d.querySelector('div[contenteditable="true"]'),
+      sendBtn: (d) =>
+        d.querySelector('button[aria-label*="发送" i]') ||
+        d.querySelector('button[aria-label*="Send" i]') ||
+        d.querySelector('button[title*="发送" i]') ||
+        d.querySelector('button[title*="Send" i]') ||
+        d.querySelector('button[class*="send"]:not([disabled])') ||
+        d.querySelector('button[type="submit"]:not([disabled])') ||
+        d.querySelector('[role="button"][aria-label*="发送" i]') ||
+        d.querySelector('[role="button"][aria-label*="Send" i]') ||
+        (() => {
+          const input =
+            d.querySelector('textarea[placeholder*="尽管问"]') ||
+            d.querySelector('textarea');
+          if (!input) return null;
+          const container =
+            input.closest('form, [class*="input"], [class*="chat"]') ||
+            input.parentElement?.parentElement?.parentElement;
+          if (!container) return null;
+          const btns = Array.from(
+            container.querySelectorAll('button, [role="button"], div[tabindex="0"]')
+          ).filter((b) => !isForbiddenSendButton(b) && visible(b));
+          return btns.length ? bottomRightMost(btns) : null;
+        })(),
+      answers: (d) =>
+        d.querySelectorAll(
+          'div[class*="markdown"], div[class*="message"], div[class*="bubble"], div[class*="prose"]'
+        ),
+
+      supportsFiles: true,
+      inputSettleMs: 150,
+      fileRoutes: ['paste', 'input', 'drop'],
+      fileInput: (d) =>
+        d.querySelector('input[type="file"][multiple]') ||
+        d.querySelector('input[type="file"]') ||
+        d.querySelector('[class*="upload"] input[type="file"]'),
+      uploadedChips: (d) =>
+        d.querySelectorAll(
+          '[class*="attachment"], [class*="file"], [class*="imgItem"], [class*="upload"], img[src^="blob:"], img[src^="data:"]'
+        ),
     },
   ];
 
   const bySite = (hostname) => ADAPTERS.find((a) => a.host.test(hostname)) || null;
   const byId = (id) => ADAPTERS.find((a) => a.id === id) || null;
+
+  // 发送按钮排除黑名单：防止将"分享"、"取消"、"复制"等操作误判为发送键
+  const FORBIDDEN_SEND_WORDS = [
+    '分享', 'share', '取消', 'cancel', '全选', '创建分享',
+    '复制', 'copy', '重试', '重新生成', 'regenerate',
+    '删除', 'delete', '清空', 'clear', '历史', 'history',
+    '折叠', '展开', '设置', 'setting', '反馈', 'feedback',
+    '赞', '踩', 'like', 'dislike'
+  ];
+
+  function isForbiddenSendButton(el) {
+    if (!el) return true;
+    const text = (el.textContent || '').trim().toLowerCase();
+    const label = (el.getAttribute('aria-label') || '').toLowerCase();
+    const title = (el.getAttribute('title') || '').toLowerCase();
+    const testid = (el.getAttribute('data-testid') || '').toLowerCase();
+    return FORBIDDEN_SEND_WORDS.some(
+      (w) => text.includes(w) || label.includes(w) || title.includes(w) || testid.includes(w)
+    );
+  }
+
+  // 自动检测并退出 DeepSeek 的"选择对话"（分享）模式
+  function exitDeepSeekSelectMode(d) {
+    if (!d || typeof d.querySelectorAll !== 'function') return;
+    try {
+      const headers = Array.from(d.querySelectorAll('div, span, h1, h2, h3, header'));
+      const hasSelectMode = headers.some(
+        (el) => el.textContent?.trim() === '选择对话' && visible(el)
+      );
+      if (hasSelectMode) {
+        const cancelBtn = Array.from(d.querySelectorAll('button, [role="button"], div, span')).find(
+          (el) => el.textContent?.trim() === '取消' && visible(el)
+        );
+        if (cancelBtn) {
+          cancelBtn.click();
+        }
+      }
+    } catch (_) {}
+  }
 
   /*
    * "看起来是个能点的控件吗"。getBoundingClientRect 在测试用的假 DOM 里不存在，
@@ -179,6 +534,7 @@
     let bestScore = -Infinity;
     for (const el of els) {
       if (!visible(el)) continue;
+      if (isForbiddenSendButton(el)) continue;
       if (typeof el.getBoundingClientRect !== 'function') return el;
       const r = el.getBoundingClientRect();
       const score = r.right + r.bottom;
@@ -196,6 +552,12 @@
   }
 
   const inputText = (el) => (el ? (el.value ?? el.innerText ?? el.textContent ?? '') : '');
+  const normText = (s) =>
+    String(s || '')
+      .replace(/\r\n/g, ' ')
+      .replace(/[\r\n\t]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ProseMirror / Quill / Lexical 用合成 paste 最稳；改 innerHTML 会让编辑器内部状态脱节。
@@ -224,7 +586,7 @@
     });
     const handled = !el.dispatchEvent(pasteEvt);
 
-    const probe = text.trim().slice(0, 20);
+    const probe = normText(text).slice(0, 25);
 
     /*
      * 关键修复：给异步编辑器（如 ChatGPT 的 ProseMirror / Lexical）留出处理 paste 的时间。
@@ -236,10 +598,10 @@
      */
     let inserted = false;
     if (probe) {
-      // 若 paste 被站点接手，等待最多 150ms（每 25ms 轮询一次）
-      const iters = handled ? 6 : 1;
+      // 若 paste 被站点接手，等待最多 250ms（每 25ms 轮询一次）
+      const iters = handled ? 10 : 2;
       for (let i = 0; i < iters; i++) {
-        if (inputText(el).includes(probe)) {
+        if (normText(inputText(el)).includes(probe)) {
           inserted = true;
           break;
         }
@@ -276,12 +638,12 @@
    * 表示填了但读不回来（可能只是读取方式对不上），由调用方决定是否继续。
    */
   async function fillInputVerified(site, win, doc, text, tries = 4) {
-    const probe = text.trim().slice(0, 20);
+    const probe = normText(text).slice(0, 25);
     let foundInput = false;
 
     const currentMatch = () => {
       const current = site.input(doc);
-      return current && inputText(current).includes(probe) ? current : null;
+      return current && (probe ? normText(inputText(current)).includes(probe) : true) ? current : null;
     };
 
     for (let i = 0; i < tries; i++) {
@@ -315,7 +677,7 @@
 
       await sleep(settleMs);
       const stable = currentMatch();
-      if (stable === matched) return { ok: true, verified: true };
+      if (stable) return { ok: true, verified: true };
     }
     return {
       ok: false,
@@ -365,8 +727,30 @@
     const el = site.fileInput(doc);
     if (!el) return false;
     el.files = toFileList(win, files).files;
+    el.dispatchEvent(new win.Event('input', { bubbles: true }));
     el.dispatchEvent(new win.Event('change', { bubbles: true }));
     return true;
+  }
+
+  // 拖拽路径：合成 drop 事件，模拟文件拖入输入框。
+  function dropFiles(site, win, doc, files) {
+    const el = site.dropTarget?.(doc) || site.input(doc);
+    if (!el) return false;
+    el.focus?.();
+    const dt = toFileList(win, files);
+    let dropEvt;
+    if (typeof win.DragEvent === 'function') {
+      dropEvt = new win.DragEvent('drop', {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      });
+    } else {
+      dropEvt = new win.Event('drop', { bubbles: true, cancelable: true });
+      dropEvt.dataTransfer = dt;
+    }
+    const notHandled = el.dispatchEvent(dropEvt);
+    return !notHandled;
   }
 
   /*
@@ -401,8 +785,9 @@
     const routeFns = {
       paste: () => pasteFiles(site, win, doc, files),
       input: () => setFileInput(site, win, doc, files),
+      drop: () => dropFiles(site, win, doc, files),
     };
-    const routes = (site.fileRoutes || ['paste', 'input'])
+    const routes = (site.fileRoutes || ['paste', 'input', 'drop'])
       .filter((via) => routeFns[via])
       .map((via) => [via, routeFns[via]]);
 
@@ -574,6 +959,14 @@
         return { ok: true, via: last.via, verified: true, attempts };
       }
 
+      // 关键加固：如果按钮点击未生效，交替尝试一次回车提交
+      if (attempts > 0 && attempts % 2 === 1) {
+        pressEnter(site, win, doc);
+        if (completed()) {
+          return { ok: true, via: 'enter', verified: true, attempts: attempts + 1 };
+        }
+      }
+
       const retryMs = Math.min(300, Math.max(0, deadline - Date.now()));
       if (retryMs) await sleep(retryMs);
     }
@@ -619,25 +1012,39 @@
   }
 
   function buildComparePrompt(question, entries) {
-    const blocks = entries.map((e) => `【回答 - ${e.name}】\n${e.text}`).join('\n\n');
-    return `下面是多个模型对同一问题的回答。请只输出对比，不要重新回答问题。
+    const blocks = entries.map((e) => `【回答 - ${e.name}】\n${e.text}`).join('\n\n---\n\n');
+    return `你现在担任专业的中立技术与事实评审专家。下面是多个大模型对同一问题的回答，请对它们进行深度横向对比分析，提取相同点与不同点，并给出中立权威的裁决。请只输出对比，不要重新回答问题。
 
 【问题】
 ${question || '(见各回答内容)'}
 
+----------------------------------------
+【各模型回答汇总】
 ${blocks}
+----------------------------------------
 
-请输出：
-1. 一句话结论：只能采纳一个的话选哪个，为什么
-2. 共识：各方都认可的结论，逐条列出
-3. 分歧：表格「议题 | 各方说法 | 谁更可信及理由」，只列真正矛盾的点
-4. 独有：只有一方提到、且确实有价值的点，标注来源
-5. 事实性风险：可疑的数字、API 名、版本号或疑似编造的引用，没有就写"未发现"`;
+请按以下清晰的结构输出对比分析报告：
+
+### 一、 核心共识与相同点
+- 逐条提取所有（或绝大多数）模型均一致认可的关键要点、事实与核心结论。
+
+### 二、 关键分歧与不同点
+- 深度对比各模型意见不合、存在实质矛盾或侧重点显著不同的地方。
+- 请使用表格列出：「分歧/议题 | 各模型立场与说法 | 哪方更可信/准确及理由依据」。
+
+### 三、 各模型独到亮点与补充
+- 梳理某一家单独提到、且确实有实用价值或深刻见解的独特视角或细节。
+
+### 四、 事实性风险与瑕疵检验
+- 检验各回答中是否存在可疑数字、失效参数、已废弃 API、混淆概念或疑似编造的内容（若无请明确注明“未发现明显事实性风险”）。
+
+### 五、 最终综合建议与裁决
+- 如果只能采纳一个方案，你推荐哪个，为什么？综合各家优势后的最终最佳决策是什么？`;
   }
 
   root.AskManyAdapters = {
     ADAPTERS, bySite, byId,
-    fillInput, fillInputVerified, sendable, waitSendable, submit, submitVerified, pressEnter,
+    fillInput, fillInputVerified, normText, sendable, waitSendable, submit, submitVerified, pressEnter,
     attachFiles, waitForUploads, base64ToFile, countChips, pasteFiles, setFileInput,
     latestAnswer, waitForStableAnswer, buildComparePrompt,
     POLL_MS, STABLE_ROUNDS, MAX_WAIT_MS, sleep,

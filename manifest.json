@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "同问 AI · 多模型工作台",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "在一个页面里并排多个 AI，一次提问全部作答，自动拼装对比报告。",
   "icons": {
     "16": "icons/icon16.png",
@@ -22,7 +22,17 @@
     "https://claude.ai/*",
     "https://gemini.google.com/*",
     "https://chat.qwen.ai/*",
-    "https://yuanbao.tencent.com/*"
+    "https://tongyi.aliyun.com/*",
+    "https://yuanbao.tencent.com/*",
+    "https://kimi.moonshot.cn/*",
+    "https://kimi.ai/*",
+    "https://www.doubao.com/*",
+    "https://chatglm.cn/*",
+    "https://grok.com/*",
+    "https://www.perplexity.ai/*",
+    "https://aistudio.xiaomimimo.com/*",
+    "https://mimo.mi.com/*",
+    "https://*.xiaomimimo.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -44,7 +54,17 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*",
         "https://chat.qwen.ai/*",
-        "https://yuanbao.tencent.com/*"
+        "https://tongyi.aliyun.com/*",
+        "https://yuanbao.tencent.com/*",
+        "https://kimi.moonshot.cn/*",
+        "https://kimi.ai/*",
+        "https://www.doubao.com/*",
+        "https://chatglm.cn/*",
+        "https://grok.com/*",
+        "https://www.perplexity.ai/*",
+        "https://aistudio.xiaomimimo.com/*",
+        "https://mimo.mi.com/*",
+        "https://*.xiaomimimo.com/*"
       ],
       "js": ["adapters.js", "content.js"],
       "all_frames": true,
