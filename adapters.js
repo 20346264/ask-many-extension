@@ -219,6 +219,7 @@
         d.querySelector('div[contenteditable="true"]') ||
         d.querySelector('textarea'),
       sendBtn: (d) =>
+        d.querySelector('#yuanbao-send-btn') ||
         d.querySelector('a#yuanbao-send-btn') ||
         d.querySelector('a[id*="send-btn"]') ||
         d.querySelector('[class*="send-btn"]:not([class*="disabled"])') ||
@@ -231,13 +232,85 @@
 
       supportsFiles: true,
       inputSettleMs: 150,
-      fileRoutes: ['paste', 'input', 'drop'],
-      fileInput: (d) =>
-        d.querySelector('input[type="file"][multiple]') ||
-        d.querySelector('input[type="file"]') ||
-        d.querySelector('[class*="upload"] input[type="file"]'),
+      // 元宝前端不监听合成 paste/drop 上传附件，且页面初始化时 DOM 中无 input[type=file]。
+      // 必须走专属 input 流程：点击工具栏添加按钮唤起 openSelectFileDialog，捕获动态创建的 input。
+      fileRoutes: ['input'],
+      fileInput: async (d, win, files) => {
+        let existing = d.querySelector('input[type="file"]');
+
+        const addBtn =
+          d.querySelector('[data-new-input-control="add-tools"] button[aria-label*="添加"]') ||
+          d.querySelector('[data-new-input-control="add-tools"] button') ||
+          d.querySelector('[data-input-toolbar-left] [data-new-input-control="add-tools"] button') ||
+          d.querySelector('button[aria-label*="添加" i]') ||
+          d.querySelector('button[aria-label*="上传" i]') ||
+          d.querySelector('[data-input-toolbar-left] button');
+
+        if (!addBtn && existing) return existing;
+
+        let capturedInput = null;
+        const origClick = win?.HTMLInputElement?.prototype?.click;
+        const interceptClick = () => {
+          if (origClick) {
+            win.HTMLInputElement.prototype.click = function () {
+              if (this.type === 'file') {
+                capturedInput = this;
+                return;
+              }
+              return origClick.apply(this, arguments);
+            };
+          }
+        };
+        const restoreClick = () => {
+          if (origClick) {
+            win.HTMLInputElement.prototype.click = origClick;
+          }
+        };
+
+        try {
+          interceptClick();
+
+          let menu = d.querySelector('div[role="menu"], [data-new-input-control="file-add-more"]');
+          if (!menu && addBtn) {
+            addBtn.click();
+            for (let i = 0; i < 8; i++) {
+              await sleep(30);
+              if (capturedInput) break;
+              menu = d.querySelector('div[role="menu"], [data-new-input-control="file-add-more"]');
+              if (menu) break;
+            }
+          }
+
+          if (!capturedInput && menu) {
+            const items = Array.from(menu.querySelectorAll('button[role="menuitem"]'));
+            const isImage = files && files.some((f) => (f.type || '').startsWith('image/'));
+            let target = null;
+            if (isImage) {
+              target = items.find((b) => /图片|image|pic/i.test(b.textContent || '')) ||
+                       items.find((b) => /本地文件|文件|file/i.test(b.textContent || ''));
+            } else {
+              target = items.find((b) => /本地文件|文件|file/i.test(b.textContent || '')) ||
+                       items.find((b) => /图片|image|pic/i.test(b.textContent || ''));
+            }
+            if (!target && items.length) target = items[0];
+            if (target) {
+              target.click();
+              if (!capturedInput) await sleep(50);
+            }
+          }
+        } finally {
+          restoreClick();
+        }
+
+        return capturedInput || d.querySelector('input[type="file"]') || existing;
+      },
       uploadedChips: (d) =>
         d.querySelectorAll(
+          '[data-input-resource-area] [class*="inputFileListItem"], ' +
+          '[data-input-resource-area] [class*="item"], ' +
+          '[class*="inputFileListItem"], [class*="inputFileListSwiperItem"], ' +
+          '[class*="inputFileListItemImage"], [class*="inputFileListItemPdf"], ' +
+          '[class*="inputFileListItemClose"], [data-input-resource-area] img, ' +
           '[class*="file-item"], [class*="fileItem"], [class*="attachment"], ' +
           '[class*="file-card"], [class*="fileCard"], [class*="doc-card"], ' +
           '[class*="doc-item"], [class*="hyc-file"], [class*="upload-file"], ' +
@@ -722,13 +795,25 @@
   }
 
   // 兜底路径：直接塞 file input。
-  function setFileInput(site, win, doc, files) {
+  async function setFileInput(site, win, doc, files) {
     if (!site.fileInput) return false;
-    const el = site.fileInput(doc);
+    let el = null;
+    try {
+      el = await site.fileInput(doc, win, files);
+    } catch (_) {
+      el = null;
+    }
     if (!el) return false;
-    el.files = toFileList(win, files).files;
+    try {
+      el.files = toFileList(win, files).files;
+    } catch (_) {}
     el.dispatchEvent(new win.Event('input', { bubbles: true }));
     el.dispatchEvent(new win.Event('change', { bubbles: true }));
+    if (typeof el.onchange === 'function') {
+      try {
+        el.onchange({ target: el });
+      } catch (_) {}
+    }
     return true;
   }
 
@@ -793,7 +878,7 @@
 
     let dispatched = false;
     for (const [via, run] of routes) {
-      if (!run()) continue; // 这条路径压根没派发出去
+      if (!await run()) continue; // 这条路径压根没派发出去
       dispatched = true;
       if (await grew()) return { ok: true, attached: files.length, via };
     }
@@ -850,7 +935,10 @@
     if (!btn) return false;
     const ariaDisabled = btn.getAttribute('aria-disabled');
     const disabled = btn.disabled;
-    return ariaDisabled !== 'true' && !disabled;
+    if (ariaDisabled === 'true' || disabled) return false;
+    const cls = String(btn.className || '');
+    if (cls.includes('disabled') || cls.includes('sendNot')) return false;
+    return true;
   }
 
   function pressEnter(site, win, doc) {
@@ -1013,9 +1101,9 @@
 
   function buildComparePrompt(question, entries) {
     const blocks = entries.map((e) => `【回答 - ${e.name}】\n${e.text}`).join('\n\n---\n\n');
-    return `你现在担任专业的中立技术与事实评审专家。下面是多个大模型对同一问题的回答，请对它们进行深度横向对比分析，提取相同点与不同点，并给出中立权威的裁决。请只输出对比，不要重新回答问题。
+    return `你现在担任本次多模型对决的“中立评审裁判”。下面是各家大模型针对同一问题的作答，请对其进行客观、犀利、结构极简的横向裁决。请只输出裁判对比内容，不要重新回答问题。
 
-【问题】
+【原问题】
 ${question || '(见各回答内容)'}
 
 ----------------------------------------
@@ -1023,23 +1111,29 @@ ${question || '(见各回答内容)'}
 ${blocks}
 ----------------------------------------
 
-请按以下清晰的结构输出对比分析报告：
+请严格按照以下 3 个部分直接输出（前两部分简单直接，第三部分必须详实充实）：
 
-### 一、 核心共识与相同点
-- 逐条提取所有（或绝大多数）模型均一致认可的关键要点、事实与核心结论。
+### 一、 直观打分（简单评价）
+按回答质量从高到低排列，给出 10 分制评分及一句话核心点评：
+- 🥇 **[第1名模型]**（X.X 分）：一句话核心优势（胜出理由）。
+- 🥈 **[第2名模型]**（X.X 分）：一句话点评。
+- 🥉 **[后续模型]**（X.X 分）：一句话点评（指出核心短板或失分项）。
+👉 **【定夺采纳】**：明确指定优先采用谁的方案。
 
-### 二、 关键分歧与不同点
-- 深度对比各模型意见不合、存在实质矛盾或侧重点显著不同的地方。
-- 请使用表格列出：「分歧/议题 | 各模型立场与说法 | 哪方更可信/准确及理由依据」。
+### 二、 各自突出亮点和不足
+简明扼要地列出每个参评模型的独到长处与核心硬伤（条理清晰，拒绝啰嗦）：
+- **[模型A]**：
+  - ✨ 突出亮点：...
+  - ⚠️ 核心不足：...
+- **[模型B]**：
+  - ✨ 突出亮点：...
+  - ⚠️ 核心不足：...
 
-### 三、 各模型独到亮点与补充
-- 梳理某一家单独提到、且确实有实用价值或深刻见解的独特视角或细节。
-
-### 四、 事实性风险与瑕疵检验
-- 检验各回答中是否存在可疑数字、失效参数、已废弃 API、混淆概念或疑似编造的内容（若无请明确注明“未发现明显事实性风险”）。
-
-### 五、 最终综合建议与裁决
-- 如果只能采纳一个方案，你推荐哪个，为什么？综合各家优势后的最终最佳决策是什么？`;
+### 三、 整理采纳方案
+【核心硬性要求】必须根据上述各模型的实际回答内容，详细、系统、完整地展示出最终采纳方案：
+1. 完整吸纳各家实际回答中的具体实操步骤、关键配置、核心论据或技术细节；
+2. 纠正并剔除各回答中存在的瑕疵、漏洞与错误；
+3. 若涉及代码、命令、排查步骤或实施流程，必须依据各模型的实际内容详细写出完整可落地的最终版本（严禁一笔带过或省略，确保信息充实详尽，用户无需再翻阅其他模型的零散回答）。`;
   }
 
   root.AskManyAdapters = {

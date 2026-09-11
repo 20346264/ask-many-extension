@@ -445,6 +445,7 @@ function populateJudgeSelect() {
 
 function updateDlgJudgeButton() {
   const btn = $('#dlgSendJudge');
+  const goBtn = $('#dlgGoJudge');
   if (!btn) return;
   if (state.judgeId && A.byId(state.judgeId)) {
     const name = A.byId(state.judgeId).name;
@@ -456,9 +457,125 @@ function updateDlgJudgeButton() {
         dispatchToJudge(state.judgeId, state.judgePrompt);
       }
     };
+    if (goBtn) {
+      goBtn.style.display = 'inline-flex';
+      goBtn.innerHTML = `<span>🔍 前往 [${name}] 窗口</span>`;
+      goBtn.onclick = () => focusJudgeColumn(state.judgeId);
+    }
   } else {
     btn.style.display = 'none';
+    if (goBtn) goBtn.style.display = 'none';
   }
+}
+
+function focusJudgeColumn(judgeId) {
+  if (!judgeId) return;
+  const col = document.getElementById(`col-${judgeId}`);
+  if (!col) return;
+  $('#dlg')?.close();
+  if (state.collapsed.has(judgeId)) {
+    toggleCollapse(judgeId);
+  }
+  col.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  col.classList.remove('judge-highlight-pulse');
+  void col.offsetWidth; // 触发回流执行动画
+  col.classList.add('judge-highlight-pulse');
+}
+
+function renderCompareDialog(question, entries, prompt, judgeId) {
+  // 1. 设置对比问题
+  const qEl = $('#dlgQuestion');
+  if (qEl) qEl.textContent = question || '(未记录原问题)';
+
+  // 2. 渲染参评模型小标签
+  const tagsWrap = $('#dlgModelsTags');
+  if (tagsWrap) {
+    tagsWrap.innerHTML = '';
+    for (const e of entries) {
+      const badge = el('span', { className: 'dlg-model-badge' });
+      badge.textContent = `${e.name} (${e.text.length}字)`;
+      tagsWrap.appendChild(badge);
+    }
+  }
+
+  // 3. 裁判模型状态信息
+  const judgeRow = $('#dlgJudgeRow');
+  const judgeNameEl = $('#dlgJudgeName');
+  const judgeStatusText = $('#judgeStatusText');
+  const btnFocusJudgeCol = $('#btnFocusJudgeCol');
+  const dlgGoJudge = $('#dlgGoJudge');
+
+  if (judgeId && A.byId(judgeId)) {
+    const jName = A.byId(judgeId).name;
+    if (judgeRow) judgeRow.style.display = 'flex';
+    if (judgeNameEl) judgeNameEl.textContent = `👑 ${jName}`;
+    if (judgeStatusText) {
+      judgeStatusText.textContent = `⚡ 当前由 [${jName}] 担任终极裁判。标准：直观打分 ➔ 亮点与不足 ➔ 详细整理采纳方案！`;
+    }
+    if (btnFocusJudgeCol) {
+      btnFocusJudgeCol.style.display = 'inline-flex';
+      btnFocusJudgeCol.onclick = () => focusJudgeColumn(judgeId);
+    }
+    if (dlgGoJudge) {
+      dlgGoJudge.style.display = 'inline-flex';
+      dlgGoJudge.innerHTML = `<span>🔍 前往 [${jName}] 窗口</span>`;
+      dlgGoJudge.onclick = () => focusJudgeColumn(judgeId);
+    }
+  } else {
+    if (judgeRow) judgeRow.style.display = 'none';
+    if (judgeStatusText) {
+      judgeStatusText.textContent = '💡 提示：在底部指定一个模型作为对比裁判，作答完成后可自动生成结构化裁决报告。';
+    }
+    if (btnFocusJudgeCol) btnFocusJudgeCol.style.display = 'none';
+    if (dlgGoJudge) dlgGoJudge.style.display = 'none';
+  }
+
+  // 4. 渲染各模型回答的折叠卡片列表
+  const cardsList = $('#answersCardsList');
+  if (cardsList) {
+    cardsList.innerHTML = '';
+    entries.forEach((e, idx) => {
+      const card = el('div', { className: 'answer-card' + (idx === 0 ? ' open' : '') });
+      const cardHeader = el('div', { className: 'answer-card-header' });
+      const left = el('div', { className: 'answer-card-left' });
+      const title = el('span', { textContent: e.name });
+      const count = el('span', { className: 'answer-card-badge', textContent: `(${e.text.length} 字)` });
+      left.append(title, count);
+
+      const right = el('div', { style: 'display:flex;align-items:center;gap:6px' });
+      const copyBtn = el('button', { className: 'btn-copy-card', textContent: '复制回答' });
+      copyBtn.onclick = async (evt) => {
+        evt.stopPropagation();
+        await navigator.clipboard.writeText(e.text);
+        copyBtn.textContent = '已复制';
+        setTimeout(() => (copyBtn.textContent = '复制回答'), 1500);
+      };
+      const arrow = el('span', { textContent: idx === 0 ? '▼' : '▶', style: 'font-size:10px;color:#94a3b8' });
+      right.append(copyBtn, arrow);
+
+      cardHeader.append(left, right);
+      cardHeader.onclick = () => {
+        const isOpen = card.classList.toggle('open');
+        arrow.textContent = isOpen ? '▼' : '▶';
+      };
+
+      const cardBody = el('div', { className: 'answer-card-body', textContent: e.text });
+      card.append(cardHeader, cardBody);
+      cardsList.appendChild(card);
+    });
+  }
+
+  // 5. 设置完整提示词内容与字数
+  const textEl = $('#dlgText');
+  if (textEl) textEl.textContent = prompt;
+  const metaEl = $('#dlgMeta');
+  if (metaEl) metaEl.textContent = `${entries.length} 份回答 · ${prompt.length} 字`;
+
+  // 更新 Tab 按钮数字
+  const btnTabAnswers = $('#btnTabAnswers');
+  if (btnTabAnswers) btnTabAnswers.textContent = `📦 各模型作答 (${entries.length})`;
+
+  updateDlgJudgeButton();
 }
 
 function toggleMaximize(id) {
@@ -839,7 +956,8 @@ async function dispatchToJudge(judgeId, prompt) {
   }
 
   setMeta(judgeId, '👑 裁判生成对比中…');
-  $('#status').textContent = `👑 裁判 [${judgeName}] 正在分析各家回答并生成对比报告…`;
+  judgeCol?.classList.add('judge-analyzing');
+  $('#status').textContent = `👑 裁判 [${judgeName}] 正在分析各家作答并进行终极裁决…`;
 
   // 轮询裁判生成进度
   let lastLen = 0;
@@ -851,6 +969,8 @@ async function dispatchToJudge(judgeId, prompt) {
     if (Date.now() - pollStart > maxPoll) {
       clearInterval(judgeTicker);
       setMeta(judgeId, '👑 裁判对比完成 (已达最大等待)');
+      judgeCol?.classList.remove('judge-analyzing');
+      judgeCol?.classList.add('judge-finished');
       return;
     }
     const r = await send(judgeId, { type: 'peek' }, 4000);
@@ -862,7 +982,13 @@ async function dispatchToJudge(judgeId, prompt) {
         if (stableCount >= 2) {
           clearInterval(judgeTicker);
           setMeta(judgeId, `👑 对比完成 (${curLen} 字) ✓`);
-          $('#status').textContent = `👑 裁判 [${judgeName}] 对比报告生成完毕！`;
+          judgeCol?.classList.remove('judge-analyzing');
+          judgeCol?.classList.add('judge-finished');
+          $('#status').innerHTML = `👑 裁判 [<b>${judgeName}</b>] 最终裁决已出炉！<a href="#" id="linkFocusJudge" style="color:#d97706;font-weight:700;margin-left:8px;text-decoration:underline;cursor:pointer">点击直达查看</a>`;
+          document.getElementById('linkFocusJudge')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            focusJudgeColumn(judgeId);
+          });
         }
       } else {
         lastLen = curLen;
@@ -973,8 +1099,7 @@ async function triggerAutoSynthesis(participants, judgeId, question, token) {
   updateDlgJudgeButton();
 
   // 更新对话框内容预备
-  $('#dlgText').textContent = prompt;
-  $('#dlgMeta').textContent = `${entries.length} 份回答 · ${prompt.length} 字`;
+  renderCompareDialog(question, entries, prompt, judgeId);
 
   await dispatchToJudge(judgeId, prompt);
 }
@@ -1024,9 +1149,7 @@ async function collect() {
   } else {
     const prompt = A.buildComparePrompt(lastQuestion, entries);
     state.judgePrompt = prompt;
-    $('#dlgText').textContent = prompt;
-    $('#dlgMeta').textContent = `${entries.length} 份回答 · ${prompt.length} 字`;
-    updateDlgJudgeButton();
+    renderCompareDialog(lastQuestion, entries, prompt, judgeId);
     $('#dlg').showModal();
     $('#status').textContent = entries.length === 1
       ? '只抓到 1 份回答，其他模型可能未作答或选择器失效'
@@ -1116,8 +1239,22 @@ $('#dlgClose').onclick = () => $('#dlg').close();
 $('#dlgCopy').onclick = async () => {
   await navigator.clipboard.writeText($('#dlgText').textContent);
   $('#dlgCopy').textContent = '已复制';
-  setTimeout(() => ($('#dlgCopy').textContent = '复制到剪贴板'), 1500);
+  setTimeout(() => ($('#dlgCopy').textContent = '复制对比提示词'), 1500);
 };
+
+// 弹窗 Tab 切换监听
+const dlgTabs = document.querySelectorAll('.dlg-tab');
+dlgTabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    dlgTabs.forEach((t) => t.classList.remove('active'));
+    document.querySelectorAll('.dlg-tab-panel').forEach((p) => p.classList.remove('active'));
+    tab.classList.add('active');
+    const targetId = tab.getAttribute('data-tab');
+    if (targetId) {
+      document.getElementById(targetId)?.classList.add('active');
+    }
+  });
+});
 
 (async () => {
   const saved = await chrome.storage.local.get([

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "同问 AI · 多模型工作台",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "在一个页面里并排多个 AI，一次提问全部作答，自动拼装对比报告。",
   "icons": {
     "16": "icons/icon16.png",
